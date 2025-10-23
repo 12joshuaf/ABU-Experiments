@@ -29,7 +29,7 @@ class ABU(layers.Layer):
                 tf.nn.relu,
                 tf.nn.tanh,
                 tf.nn.sigmoid,
-                tf.identity
+                #remove tf.identity, more efficient
             ]
         else:
             self.activation_fns = activation_fns
