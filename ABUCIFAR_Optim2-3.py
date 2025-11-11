@@ -1,39 +1,28 @@
-# CIFAR without identity function
-
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.datasets import cifar10
 import matplotlib.pyplot as plt
 
-
 # 1. Load and preprocess CIFAR-10
-
 (x_train, y_train), (x_test, y_test) = cifar10.load_data()
-
-# Normalize images to [0, 1]
 x_train = x_train.astype('float32') / 255.0
 x_test = x_test.astype('float32') / 255.0
 
-# One-hot encode labels
 num_classes = 10
 y_train = tf.keras.utils.to_categorical(y_train, num_classes)
 y_test = tf.keras.utils.to_categorical(y_test, num_classes)
 
 
-# Adaptive Blending Units
-# 2. Define the ABU
-
+# 2. Define the ABU Layer
 class ABU(layers.Layer):
-
     def __init__(self, activation_fns=None, **kwargs):
         super().__init__(**kwargs)
         self.activation_fns = [
             tf.nn.relu,
             tf.nn.tanh,
             tf.nn.sigmoid,
-            #tf.identity
-            ]
+        ]
 
     def build(self, input_shape):
         num_funcs = len(self.activation_fns)
@@ -52,43 +41,7 @@ class ABU(layers.Layer):
         return tf.reduce_sum(stacked * weights, axis=-1)
 
 
-# Callback to freeze ABUs once their alphas converge
-
-class FreezeABUCallback(tf.keras.callbacks.Callback):
-    def __init__(self, model, tol=1e-4, patience=2):
-        super().__init__()
-        self.model = model
-        self.tol = tol
-        self.patience = patience
-        self.prev_alphas = None
-        self.stable_epochs = 0
-        self.frozen = False
-
-    def get_abu_alphas(self):
-        return [layer.alpha.numpy() for layer in self.model.layers if isinstance(layer, ABU)]
-
-    def on_epoch_end(self, epoch, logs=None):
-        current_alphas = self.get_abu_alphas()
-
-        if self.prev_alphas is not None:
-            deltas = [np.abs(curr - prev).max() for curr, prev in zip(current_alphas, self.prev_alphas)]
-            if max(deltas) < self.tol:
-                self.stable_epochs += 1
-            else:
-                self.stable_epochs = 0
-
-            if self.stable_epochs >= self.patience and not self.frozen:
-                print(f"\n✅ ABU alphas converged and frozen at epoch {epoch}")
-                for layer in self.model.layers:
-                    if isinstance(layer, ABU):
-                        layer.alpha._trainable = False
-                self.frozen = True
-
-        self.prev_alphas = current_alphas
-
-
-# 3. Define Model
-
+# 3. Define the Model
 class CIFARABUModel(Model):
     def __init__(self, num_classes=10):
         super().__init__()
@@ -134,56 +87,76 @@ class CIFARABUModel(Model):
         return self.out(x)
 
 
-# 4. Compile and Train
+# 4. Callback to detect slow-moving ABU weights
+class ABUCallback(tf.keras.callbacks.Callback):
+    def __init__(self, threshold=0.01, patience=3):
+        super().__init__()
+        self.threshold = threshold
+        self.patience = patience
+        self.prev_alphas = {}
+        self.slow_counter = {}
 
+    def on_epoch_end(self, epoch, logs=None):
+        for layer in self.model.layers:
+            if isinstance(layer, ABU):
+                if layer.name not in self.prev_alphas:
+                    self.prev_alphas[layer.name] = tf.nn.softmax(layer.alpha).numpy()
+                    self.slow_counter[layer.name] = 0
+                    continue
+
+                current_alpha = tf.nn.softmax(layer.alpha).numpy()
+                prev_alpha = self.prev_alphas[layer.name]
+                delta = np.linalg.norm(current_alpha - prev_alpha, ord=2)
+
+                self.prev_alphas[layer.name] = current_alpha
+
+                if delta < self.threshold:
+                    self.slow_counter[layer.name] += 1
+                    if self.slow_counter[layer.name] >= self.patience:
+                        print(f"Epoch {epoch+1}: ABU layer '{layer.name}' weights are moving slowly (delta={delta:.6f})")
+                else:
+                    self.slow_counter[layer.name] = 0
+
+
+# 5. Compile and Train
 model = CIFARABUModel(num_classes=num_classes)
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(1e-3),
+    optimizer=tf.keras.optimizers.Adam(0.0001),
     loss='categorical_crossentropy',
-    metrics=['accuracy'],
+    metrics=['accuracy']
 )
-
-callback = FreezeABUCallback(model, tol=1e-4, patience=2)
 
 history = model.fit(
     x_train, y_train,
-    epochs=15,
+    epochs=10,
     batch_size=64,
     validation_split=0.1,
-    callbacks=[callback]
+    callbacks=[ABUCallback(threshold=0.2, patience=2)]
 )
 
 
-# 5. Evaluate the model
+# 6. Evaluate the model
 print(model.summary())
-print("")
 test_loss, test_acc = model.evaluate(x_test, y_test)
 print(f"\nTest accuracy: {test_acc:.4f}")
-print(model.abu1.alpha)
-print(model.abu2.alpha)
-print(model.abu3.alpha)
-print(model.summary())
+
+# Print learned ABU alpha weights
+print("ABU1 alpha:", model.abu1.alpha.numpy())
+print("ABU2 alpha:", model.abu2.alpha.numpy())
+print("ABU3 alpha:", model.abu3.alpha.numpy())
+print("ABU_fc alpha:", model.abu_fc.alpha.numpy())
 
 
-# 6. Plot the final blended activation function
+# 7. Plot final learned ABU weights
+def plot_abu_weights(model):
+    for i, layer in enumerate(model.layers):
+        if isinstance(layer, ABU):
+            weights = tf.nn.softmax(layer.alpha).numpy()
+            plt.figure()
+            plt.bar(range(len(weights)), weights)
+            plt.title(f"ABU Layer {i+1} ({layer.name}) Softmax Weights")
+            plt.xlabel("Activation function")
+            plt.ylabel("Weight")
+            plt.show()
 
-def plot_activation(abu_layer, name="ABU Activation"):
-    # Create values to test over inputs from -3 to 3
-    x = np.linspace(-3, 3, 400)
-    activations = [fn(x).numpy() for fn in abu_layer.activation_fns]
-    weights = tf.nn.softmax(abu_layer.alpha).numpy()
-
-    blended = np.sum(np.stack(activations, axis=-1) * weights, axis=-1)
-
-    plt.figure(figsize=(8, 5))
-    for i, act in enumerate(activations):
-        plt.plot(x, act, linestyle='--', label=f'Base fn {i}')
-    plt.plot(x, blended, linewidth=3, label='Blended Activation')
-    plt.title(f"{name} (final alphas: {weights.round(3)})")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-
-# Plot the final activation for abu1
-plot_activation(model.abu1, name="Final ABU1 Activation")
+plot_abu_weights(model)
