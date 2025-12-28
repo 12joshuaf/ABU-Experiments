@@ -6,74 +6,25 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 
-# Adaptive Blending Unit Class
-class AdaptiveBlendingUnit(nn.Module):
-    def __init__(self):
-        super().__init__()
-        # Five blending parameters for ReLU, Tanh, ELU, Swish, Identity
-        self.weights = nn.Parameter(torch.ones(5) / 5)  # Initialize equally
-
-    def forward(self, x):
-        # Check if input is 2D (fully connected) or 4D (convolutional)
-        is_2d = x.dim() == 2
-
-        # Apply softmax to ensure weights sum to 1
-        if is_2d:
-            w = F.softmax(self.weights, dim=0).view(1, 1, 5)
-        else:
-            w = F.softmax(self.weights, dim=0).view(1, 1, 5, 1, 1)
-
-        # Compute all five activations
-        if is_2d:
-            relu_out = F.relu(x).unsqueeze(2)
-            tanh_out = torch.tanh(x).unsqueeze(2)
-            elu_out = F.elu(x).unsqueeze(2)
-            swish_out = (x * torch.sigmoid(x)).unsqueeze(2)
-            identity_out = x.unsqueeze(2)
-        else:
-            relu_out = F.relu(x).unsqueeze(2)
-            tanh_out = torch.tanh(x).unsqueeze(2)
-            elu_out = F.elu(x).unsqueeze(2)
-            swish_out = (x * torch.sigmoid(x)).unsqueeze(2)
-            identity_out = x.unsqueeze(2)
-
-        # Stack activations
-        activations = torch.cat([relu_out, tanh_out, elu_out, swish_out, identity_out], dim=2)
-
-        # Weighted blend
-        output = (activations * w).sum(dim=2)
-
-        return output
-
-    def get_weight_values(self):
-        # Return current weight values (after softmax)
-        return F.softmax(self.weights, dim=-1).detach()
-
-
-# CNN with ABU activations
-class CIFAR10_ABU_Net(nn.Module):
+# CNN with ReLU activations
+class CIFAR10_Net(nn.Module):
     def __init__(self):
         super().__init__()
         # Convolutional layers
         self.conv1 = nn.Conv2d(3, 64, 3, padding=1)
         self.bn1 = nn.BatchNorm2d(64)
-        self.abu1 = AdaptiveBlendingUnit()
 
         self.conv2 = nn.Conv2d(64, 128, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(128)
-        self.abu2 = AdaptiveBlendingUnit()
 
         self.conv3 = nn.Conv2d(128, 256, 3, padding=1)
         self.bn3 = nn.BatchNorm2d(256)
-        self.abu3 = AdaptiveBlendingUnit()
 
         self.conv4 = nn.Conv2d(256, 512, 3, padding=1)
         self.bn4 = nn.BatchNorm2d(512)
-        self.abu4 = AdaptiveBlendingUnit()
 
         # Fully connected layers
         self.fc1 = nn.Linear(512 * 2 * 2, 512)
-        self.abu5 = AdaptiveBlendingUnit()
         self.dropout = nn.Dropout(0.5)
         self.fc2 = nn.Linear(512, 10)
 
@@ -83,39 +34,35 @@ class CIFAR10_ABU_Net(nn.Module):
         # Conv block 1
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.abu1(x)
+        x = F.relu(x)
         x = self.pool(x)
 
         # Conv block 2
         x = self.conv2(x)
         x = self.bn2(x)
-        x = self.abu2(x)
+        x = F.relu(x)
         x = self.pool(x)
 
         # Conv block 3
         x = self.conv3(x)
         x = self.bn3(x)
-        x = self.abu3(x)
+        x = F.relu(x)
         x = self.pool(x)
 
         # Conv block 4
         x = self.conv4(x)
         x = self.bn4(x)
-        x = self.abu4(x)
+        x = F.relu(x)
         x = self.pool(x)
 
         # Fully connected
         x = x.view(x.size(0), -1)
         x = self.fc1(x)
-        x = self.abu5(x)
+        x = F.relu(x)
         x = self.dropout(x)
         x = self.fc2(x)
 
         return x
-
-    def get_all_abus(self):
-        # Return all ABU modules
-        return [self.abu1, self.abu2, self.abu3, self.abu4, self.abu5]
 
 
 def train_epoch(model, trainloader, criterion, optimizer, device):
@@ -201,7 +148,7 @@ def main():
 
     # Model, loss, optimizer
     print('Initializing model...')
-    model = CIFAR10_ABU_Net().to(device)
+    model = CIFAR10_Net().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
@@ -224,17 +171,6 @@ def main():
         print(f'Train Acc: {100. * train_acc:.2f}%, Val Acc: {100. * val_acc:.2f}%, '
               f'Val Loss: {val_loss:.3f}')
 
-        # Display current ABU weights every 5 epochs
-        if (epoch + 1) % 5 == 0:
-            print('\nCurrent ABU weights (ReLU, Tanh, ELU, Swish, Identity):')
-            for i, abu in enumerate(model.get_all_abus()):
-                weight_vals = abu.get_weight_values()
-                print(f'  Layer {i + 1}: ReLU={weight_vals[0].item():.4f}, '
-                      f'Tanh={weight_vals[1].item():.4f}, '
-                      f'ELU={weight_vals[2].item():.4f}, '
-                      f'Swish={weight_vals[3].item():.4f}, '
-                      f'Identity={weight_vals[4].item():.4f}')
-
         # Update learning rate
         scheduler.step()
 
@@ -246,22 +182,11 @@ def main():
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'best_acc': best_acc,
-            }, 'cifar10_abu_best.pth')
+            }, 'cifar10_best.pth')
             print(f'  → Saved new best model (acc: {100. * best_acc:.2f}%)')
 
     print('\n' + '=' * 70)
     print(f'Training complete! Best validation accuracy: {100. * best_acc:.2f}%')
-
-    # Final ABU statistics
-    print('\nFinal ABU Weights:')
-    print('-' * 70)
-    for i, abu in enumerate(model.get_all_abus()):
-        weight_vals = abu.get_weight_values()
-        print(f'Layer {i + 1}: ReLU={weight_vals[0].item():.4f}, '
-              f'Tanh={weight_vals[1].item():.4f}, '
-              f'ELU={weight_vals[2].item():.4f}, '
-              f'Swish={weight_vals[3].item():.4f}, '
-              f'Identity={weight_vals[4].item():.4f}')
 
 
 if __name__ == '__main__':

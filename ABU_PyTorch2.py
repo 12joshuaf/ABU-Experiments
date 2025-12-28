@@ -7,7 +7,7 @@ from torchvision import datasets, transforms
 import numpy as np
 from collections import deque
 
-ABU_ITERATIONS = 30
+ABU_ITERATIONS = 40
 
 
 # Adaptive Blending Unit with 4 activations: ReLU, Tanh, ELU, Swish
@@ -15,9 +15,9 @@ ABU_ITERATIONS = 30
 class AdaptiveBlendingUnit(nn.Module):
     def __init__(self):
         super().__init__()
-        self.frozen = False
+        self.frozen = False #frozen weights
         self.hard_frozen = False  # When one activation dominates (>= 0.85)
-        self.dominant_idx = None
+        self.dominant_idx = None # if one activation function is dominant, it becomes the only one
 
         # Four blending parameters for ReLU, Tanh, ELU, Swish
         self.weights = nn.Parameter(torch.ones(4) / 4)  # Initialize equally
@@ -70,7 +70,7 @@ class AdaptiveBlendingUnit(nn.Module):
         # Return current weight values (after softmax)
         return F.softmax(self.weights, dim=-1).detach()
 
-    def check_and_freeze(self, threshold=0.005):
+    def check_and_freeze(self, threshold=0.0005):
         # Check if weight values have stabilized and freeze if so
         # Also check if any weight >= 0.85 for hard freeze
         if self.frozen:
@@ -105,7 +105,7 @@ class AdaptiveBlendingUnit(nn.Module):
         return False
 
     def hard_freeze(self, current_weights):
-        """Hard freeze: Set dominant weight to 1.0, others to 0.0"""
+        #Hard freeze: Set dominant weight to 1.0, others to 0.0
         self.frozen = True
         self.hard_frozen = True
         self.dominant_idx = torch.argmax(current_weights).item()
@@ -127,7 +127,7 @@ class AdaptiveBlendingUnit(nn.Module):
               f"ELU={weight_vals[2]:.4f}, Swish={weight_vals[3]:.4f}")
 
     def freeze(self):
-        """Normal freeze: Stop training but keep current weight distribution"""
+        #Normal freeze: Stop training but keep current weight distribution
         self.frozen = True
         self.weights.requires_grad = False
         weight_vals = self.get_weight_values().cpu().numpy()
@@ -210,7 +210,7 @@ class CIFAR10_ABU_Net(nn.Module):
         # Return all ABU modules
         return [self.abu1, self.abu2, self.abu3, self.abu4, self.abu5]
 
-    def check_and_freeze_abus(self, threshold=0.005):
+    def check_and_freeze_abus(self, threshold=0.0001):
         # Check all ABUs and freeze those that have stabilized
         frozen_count = 0
         for i, abu in enumerate(self.get_all_abus()):
@@ -222,7 +222,7 @@ class CIFAR10_ABU_Net(nn.Module):
         return frozen_count
 
 
-def train_epoch(model, trainloader, criterion, optimizer, device, epoch, abu_freeze_threshold=0.005):
+def train_epoch(model, trainloader, criterion, optimizer, device, epoch, abu_freeze_threshold=0.0005):
     model.train()
     running_loss = 0.0
     correct = 0
@@ -282,7 +282,7 @@ def main():
     batch_size = 128
     num_epochs = 50
     learning_rate = 0.001
-    abu_freeze_threshold = 0.005  # Threshold for freezing ABUs
+    abu_freeze_threshold = 0.0005  # Threshold for freezing ABUs
 
     # Device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

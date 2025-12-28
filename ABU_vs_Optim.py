@@ -217,7 +217,7 @@ class BenchmarkNet(nn.Module):
     def get_all_abus(self):
         return [self.abu1, self.abu2, self.abu3, self.abu4]
 
-    def check_and_freeze_abus(self, threshold=0.005):
+    def check_and_freeze_abus(self, threshold=0.0001):
         frozen_count = 0
         for abu in self.get_all_abus():
             if abu.check_and_freeze(threshold):
@@ -226,7 +226,7 @@ class BenchmarkNet(nn.Module):
 
 
 def benchmark_training(model, device, num_batches=200, batch_size=64):
-    """Benchmark training speed"""
+    #Benchmark training speed
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss()
@@ -277,7 +277,7 @@ def benchmark_training(model, device, num_batches=200, batch_size=64):
 
 
 def benchmark_inference(model, device, num_batches=500, batch_size=64):
-    """Benchmark inference speed"""
+    #Benchmark inference speed
     model.eval()
 
     dummy_input = torch.randn(batch_size, 3, 32, 32).to(device)
@@ -305,7 +305,7 @@ def plot_results(optimized_train_times, standard_train_times,
                  optimized_frozen, standard_frozen,
                  optimized_trainable, standard_trainable,
                  optimized_inference_times, standard_inference_times):
-    """Plot comparison results"""
+    #Plot comparison results
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     # Training time comparison
@@ -404,12 +404,12 @@ def main():
 
     if std_total > opt_total:
         speedup_training = ((std_total - opt_total) / std_total) * 100
-        print(f"\n✓ Training Speedup: {speedup_training:.2f}% faster (Optimized wins)")
-        print(f"  Time saved: {std_total - opt_total:.2f} seconds")
+        print(f"\nTraining Speedup: {speedup_training:.2f}% faster (Optimized wins)")
+        print(f"Time saved: {std_total - opt_total:.2f} seconds")
     else:
         slowdown_training = ((opt_total - std_total) / std_total) * 100
-        print(f"\n✗ Training Slowdown: {slowdown_training:.2f}% slower (Standard wins)")
-        print(f"  Extra time: {opt_total - std_total:.2f} seconds")
+        print(f"\nTraining Slowdown: {slowdown_training:.2f}% slower (Standard wins)")
+        print(f"Extra time: {opt_total - std_total:.2f} seconds")
 
     # Inference benchmark
     print("\n" + "-" * 80)
@@ -431,19 +431,19 @@ def main():
     std_inf_mean = np.mean(std_inference_times) * 1000
 
     print(f"\nOptimized ABU (4 activations):")
-    print(f"  Mean inference time: {opt_inf_mean:.3f} ms")
-    print(f"  Throughput: {1000 / opt_inf_mean:.1f} batches/second")
+    print(f"Mean inference time: {opt_inf_mean:.3f} ms")
+    print(f"Throughput: {1000 / opt_inf_mean:.1f} batches/second")
 
     print(f"\nStandard ABU (5 activations):")
-    print(f"  Mean inference time: {std_inf_mean:.3f} ms")
-    print(f"  Throughput: {1000 / std_inf_mean:.1f} batches/second")
+    print(f"Mean inference time: {std_inf_mean:.3f} ms")
+    print(f"Throughput: {1000 / std_inf_mean:.1f} batches/second")
 
     if std_inf_mean > opt_inf_mean:
         speedup_inference = ((std_inf_mean - opt_inf_mean) / std_inf_mean) * 100
-        print(f"\n✓ Inference Speedup: {speedup_inference:.2f}% faster (Optimized wins)")
+        print(f"\n Inference Speedup: {speedup_inference:.2f}% faster (Optimized wins)")
     else:
         slowdown_inference = ((opt_inf_mean - std_inf_mean) / std_inf_mean) * 100
-        print(f"\n✗ Inference Slowdown: {slowdown_inference:.2f}% slower (Standard wins)")
+        print(f"\n Inference Slowdown: {slowdown_inference:.2f}% slower (Standard wins)")
 
     # Final activation analysis
     print("\n" + "-" * 80)
@@ -457,10 +457,10 @@ def main():
         dominant = np.argmax(weights)
         status = "FROZEN" if hasattr(abu, 'frozen') and abu.frozen else "ACTIVE"
 
-        print(f"  Layer {i + 1}: [{status}]")
-        print(f"    ReLU={weights[0]:.4f}, Tanh={weights[1]:.4f}, "
+        print(f"Layer {i + 1}: [{status}]")
+        print(f"ReLU={weights[0]:.4f}, Tanh={weights[1]:.4f}, "
               f"ELU={weights[2]:.4f}, Swish={weights[3]:.4f}")
-        print(f"    Dominant: {activation_names_4[dominant]} ({weights[dominant]:.4f})")
+        print(f"Dominant: {activation_names_4[dominant]} ({weights[dominant]:.4f})")
 
         # Show frozen weights if available
         if hasattr(abu, 'frozen_weights') and abu.frozen_weights is not None:
@@ -473,10 +473,10 @@ def main():
     for i, abu in enumerate(model_standard.get_all_abus()):
         weights = abu.get_weight_values().cpu().numpy()
         dominant = np.argmax(weights)
-        print(f"  Layer {i + 1}: [ACTIVE - continues training]")
-        print(f"    ReLU={weights[0]:.4f}, Tanh={weights[1]:.4f}, ELU={weights[2]:.4f}, "
+        print(f"Layer {i + 1}: [ACTIVE - continues training]")
+        print(f"ReLU={weights[0]:.4f}, Tanh={weights[1]:.4f}, ELU={weights[2]:.4f}, "
               f"Swish={weights[3]:.4f}, Identity={weights[4]:.4f}")
-        print(f"    Dominant: {activation_names_5[dominant]} ({weights[dominant]:.4f})")
+        print(f"Dominant: {activation_names_5[dominant]} ({weights[dominant]:.4f})")
 
     # Plot results
     print("\n" + "-" * 80)
@@ -493,14 +493,14 @@ def main():
     print(f"Standard ABU:  5 activations (ReLU, Tanh, ELU, Swish, Identity), never freezes")
     print()
     if std_total > opt_total:
-        print(f"✓ Training: Optimized is {((std_total - opt_total) / std_total) * 100:.2f}% FASTER")
+        print(f"Training: Optimized is {((std_total - opt_total) / std_total) * 100:.2f}% FASTER")
     else:
-        print(f"✗ Training: Optimized is {((opt_total - std_total) / std_total) * 100:.2f}% SLOWER")
+        print(f"Training: Optimized is {((opt_total - std_total) / std_total) * 100:.2f}% SLOWER")
 
     if std_inf_mean > opt_inf_mean:
-        print(f"✓ Inference: Optimized is {((std_inf_mean - opt_inf_mean) / std_inf_mean) * 100:.2f}% FASTER")
+        print(f"Inference: Optimized is {((std_inf_mean - opt_inf_mean) / std_inf_mean) * 100:.2f}% FASTER")
     else:
-        print(f"✗ Inference: Optimized is {((opt_inf_mean - std_inf_mean) / std_inf_mean) * 100:.2f}% SLOWER")
+        print(f"Inference: Optimized is {((opt_inf_mean - std_inf_mean) / std_inf_mean) * 100:.2f}% SLOWER")
     print("=" * 80)
 
 
